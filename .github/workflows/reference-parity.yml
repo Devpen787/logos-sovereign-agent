@@ -1,0 +1,145 @@
+name: Official reference parity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CHAT_COMMIT: dfe8ccf3eff3e95da0ba54043577270474a216ae
+  LEZ_COMMIT: 549cf1159f20fa0c3fe8e88a5ab71de68a5aa34b
+  DOCTEST_COMMIT: f5a5512674d32005469958406a4d87ee4435c94c
+
+jobs:
+  chat-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out the exact official Chat source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: logos-co/logos-chat-module
+          ref: ${{ env.CHAT_COMMIT }}
+          path: official-chat
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Run the unmodified official Chat specifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reference-evidence/chat
+          git -C official-chat rev-parse HEAD \
+            | tee reference-evidence/chat/source-commit.txt
+          test "$(cat reference-evidence/chat/source-commit.txt)" = "$CHAT_COMMIT"
+          shasum -a 256 \
+            official-chat/doctests/chat-module-exchange.test.yaml \
+            official-chat/doctests/chat-module-group.test.yaml \
+            | tee reference-evidence/chat/specs-before.sha256
+          nix run "github:logos-co/logos-doctest/${DOCTEST_COMMIT}" -- run \
+            official-chat/doctests/chat-module-exchange.test.yaml \
+            official-chat/doctests/chat-module-group.test.yaml \
+            --verbose \
+            --continue-on-fail \
+            --release-for logos-chat-module=${CHAT_COMMIT} \
+            --report reference-evidence/chat/report.html
+          shasum -a 256 \
+            official-chat/doctests/chat-module-exchange.test.yaml \
+            official-chat/doctests/chat-module-group.test.yaml \
+            > reference-evidence/chat/specs-after.sha256
+          diff -u \
+            reference-evidence/chat/specs-before.sha256 \
+            reference-evidence/chat/specs-after.sha256
+      - name: Sanitize the Chat report
+        id: sanitize
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          report = Path("reference-evidence/chat/report.html")
+          if report.is_file():
+              uuid = re.compile(
+                  r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b"
+              )
+              report.write_text(uuid.sub("<redacted-uuid>", report.read_text()))
+              assert not uuid.search(report.read_text())
+          PY
+      - name: Upload Chat reference evidence
+        if: always() && steps.sanitize.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
+        with:
+          name: official-chat-reference-ubuntu-24.04
+          retention-days: 30
+          if-no-files-found: warn
+          path: reference-evidence/chat/
+
+  lez-reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Check out the exact official LEZ source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: logos-blockchain/logos-execution-zone-module
+          ref: ${{ env.LEZ_COMMIT }}
+          path: official-lez
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Run the unmodified official LEZ specification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reference-evidence/lez
+          git -C official-lez rev-parse HEAD \
+            | tee reference-evidence/lez/source-commit.txt
+          test "$(cat reference-evidence/lez/source-commit.txt)" = "$LEZ_COMMIT"
+          shasum -a 256 \
+            official-lez/doctests/logos-execution-zone-runtime.test.yaml \
+            | tee reference-evidence/lez/spec-before.sha256
+          nix run "github:logos-co/logos-doctest/${DOCTEST_COMMIT}" -- run \
+            official-lez/doctests/logos-execution-zone-runtime.test.yaml \
+            --verbose \
+            --continue-on-fail \
+            --release-for logos-execution-zone-module=${LEZ_COMMIT} \
+            --report reference-evidence/lez/report.html
+          shasum -a 256 \
+            official-lez/doctests/logos-execution-zone-runtime.test.yaml \
+            > reference-evidence/lez/spec-after.sha256
+          diff -u \
+            reference-evidence/lez/spec-before.sha256 \
+            reference-evidence/lez/spec-after.sha256
+      - name: Sanitize the LEZ report
+        id: sanitize
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          report = Path("reference-evidence/lez/report.html")
+          if report.is_file():
+              uuid = re.compile(
+                  r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b"
+              )
+              report.write_text(uuid.sub("<redacted-uuid>", report.read_text()))
+              assert not uuid.search(report.read_text())
+          PY
+      - name: Upload LEZ reference evidence
+        if: always() && steps.sanitize.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
+        with:
+          name: official-lez-reference-${{ matrix.os }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: reference-evidence/lez/

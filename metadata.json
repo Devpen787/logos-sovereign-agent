@@ -7,7 +7,7 @@
   "category": "agent",
   "description": "Policy-bounded autonomous agent module for the native Logos stack",
   "main": "sovereign_agent_plugin",
-  "dependencies": [],
+  "dependencies": ["chat_module"],
   "nix": {
     "packages": {
       "build": [],

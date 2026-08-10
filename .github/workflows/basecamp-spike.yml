@@ -1,0 +1,150 @@
+name: Basecamp spike
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASECAMP_COMMIT: aa237766baf61404e12da86b7303cb41065464c9
+  BASECAMP_QT_MCP_COMMIT: 1fea509485a48ab185fafae8dc21bdbcc808a07e
+  LGPM_COMMIT: 202af6fa0f0f4493bc59c8a609dff9326f78a18d
+  CHAT_COMMIT: dfe8ccf3eff3e95da0ba54043577270474a216ae
+  DELIVERY_COMMIT: 3258cdb0132e37228aa2519e0c01c0e7429a20dd
+
+jobs:
+  basecamp-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install Linux Basecamp runtime library
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libegl1 libopengl0
+      - name: Materialize module lock
+        run: |
+          nix flake lock
+          git diff --exit-code -- flake.lock
+          nix flake metadata --json | tee flake-metadata.json
+      - name: Build portable sovereign-agent package
+        run: |
+          nix build .#lgx-portable -o result-lgx-portable --print-build-logs
+          nix build "github:logos-co/logos-chat-module/${CHAT_COMMIT}#lgx-portable" -o chat-lgx-portable --print-build-logs
+          nix build "github:logos-co/logos-delivery-module/${DELIVERY_COMMIT}#lgx-portable" -o delivery-lgx-portable --print-build-logs
+      - name: Build exact Basecamp evaluator and UI driver
+        run: |
+          nix flake metadata --json "github:logos-co/logos-basecamp/${BASECAMP_COMMIT}" | tee basecamp-evidence-metadata.json
+          nix build "github:logos-co/logos-basecamp/${BASECAMP_COMMIT}#bin-bundle-dir-inspector" -o result-basecamp --print-build-logs
+          nix build "github:logos-co/logos-qt-mcp/${BASECAMP_QT_MCP_COMMIT}" -o result-mcp --print-build-logs
+          nix build "github:logos-co/logos-package-manager/${LGPM_COMMIT}#cli-portable" -o result-lgpm-portable --print-build-logs
+      - name: Verify Linux dynamic runtime closure
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p basecamp-evidence
+          test -x result-basecamp/bin/.LogosBasecamp.elf
+          ldd result-basecamp/bin/.LogosBasecamp.elf \
+            | tee basecamp-evidence/linux-dynamic-libraries.txt
+          if grep -Fq 'not found' basecamp-evidence/linux-dynamic-libraries.txt; then
+            echo 'Basecamp has unresolved Linux dynamic libraries' >&2
+            exit 1
+          fi
+      - name: Install portable package into isolated Basecamp state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p basecamp-user/modules basecamp-user/plugins basecamp-evidence
+          lgx_path=$(find -L result-lgx-portable -maxdepth 2 -name '*.lgx' -type f -print -quit)
+          chat_lgx_path=$(find -L chat-lgx-portable -maxdepth 2 -name '*.lgx' -type f -print -quit)
+          delivery_lgx_path=$(find -L delivery-lgx-portable -maxdepth 2 -name '*.lgx' -type f -print -quit)
+          test -n "$lgx_path"
+          test -n "$chat_lgx_path"
+          test -n "$delivery_lgx_path"
+          ./result-lgpm-portable/bin/lgpm --modules-dir ./basecamp-user/modules --ui-plugins-dir ./basecamp-user/plugins --allow-unsigned install --file "$delivery_lgx_path" | tee basecamp-evidence/lgpm-install-delivery.txt
+          ./result-lgpm-portable/bin/lgpm --modules-dir ./basecamp-user/modules --ui-plugins-dir ./basecamp-user/plugins --allow-unsigned install --file "$chat_lgx_path" | tee basecamp-evidence/lgpm-install-chat.txt
+          ./result-lgpm-portable/bin/lgpm --modules-dir ./basecamp-user/modules --ui-plugins-dir ./basecamp-user/plugins --allow-unsigned install --file "$lgx_path" | tee basecamp-evidence/lgpm-install.txt
+          ./result-lgpm-portable/bin/lgpm --modules-dir ./basecamp-user/modules --ui-plugins-dir ./basecamp-user/plugins info sovereign_agent --json | tee basecamp-evidence/lgpm-info.json
+          shasum -a 256 flake.lock "$lgx_path" | tee basecamp-evidence/artifact-sha256.txt
+      - name: Exercise the module through the real Basecamp UI boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LOGOS_USER_DIR="$PWD/basecamp-user"
+          export LOGOS_QT_MCP="$PWD/result-mcp"
+          export BASECAMP_EVIDENCE_DIR="$PWD/basecamp-evidence"
+          export QT_LOGGING_RULES="qt.*.debug=false;default.debug=true"
+          node tests/basecamp_native_spike.mjs --ci "$PWD/result-basecamp/bin/LogosBasecamp" --verbose 2>&1 | tee basecamp-evidence/ui-test.log
+          find "$LOGOS_USER_DIR" -maxdepth 3 -type f -print | sort | tee basecamp-evidence/user-dir-files.txt
+          if [ -d "$LOGOS_USER_DIR/logs" ]; then
+            cp -R "$LOGOS_USER_DIR/logs" basecamp-evidence/app-logs
+          fi
+      - name: Sanitize captured runtime logs
+        id: sanitize
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          uuid = re.compile(
+              r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b"
+          )
+          evidence = Path("basecamp-evidence")
+          if evidence.is_dir():
+              for captured in evidence.rglob("*"):
+                  if not captured.is_file() or captured.suffix not in {".log", ".txt"}:
+                      continue
+                  content = captured.read_text(errors="replace")
+                  captured.write_text(uuid.sub("<redacted-uuid>", content))
+              leaks = [
+                  str(captured)
+                  for captured in evidence.rglob("*")
+                  if captured.is_file()
+                  and captured.suffix in {".log", ".txt"}
+                  and uuid.search(captured.read_text(errors="replace"))
+              ]
+              assert not leaks, leaks
+          PY
+      - name: Independently audit the complete Basecamp evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python3 tools/audit_evidence.py . --kind basecamp \
+              --require-linux-ldd --json \
+              | tee basecamp-evidence/independent-audit.json
+          else
+            python3 tools/audit_evidence.py . --kind basecamp --json \
+              | tee basecamp-evidence/independent-audit.json
+          fi
+      - name: Upload auditable Basecamp evidence
+        if: always() && steps.sanitize.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
+        with:
+          name: basecamp-spike-${{ matrix.os }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            basecamp-evidence/
+            basecamp-evidence-metadata.json
+            flake.lock
+            flake-metadata.json
+            result-lgx-portable/*.lgx
+            chat-lgx-portable/*.lgx
+            delivery-lgx-portable/*.lgx
