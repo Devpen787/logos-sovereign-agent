@@ -39,6 +39,7 @@ jobs:
       - name: Materialize module lock
         run: |
           nix flake lock
+          git diff --exit-code -- flake.lock
           nix flake metadata --json | tee flake-metadata.json
       - name: Build portable sovereign-agent package
         run: |
@@ -94,6 +95,7 @@ jobs:
             cp -R "$LOGOS_USER_DIR/logs" basecamp-evidence/app-logs
           fi
       - name: Sanitize captured runtime logs
+        id: sanitize
         if: always()
         run: |
           python3 - <<'PY'
@@ -119,8 +121,18 @@ jobs:
               ]
               assert not leaks, leaks
           PY
+      - name: Independently audit the complete Basecamp evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_args=()
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            audit_args+=(--require-linux-ldd)
+          fi
+          python3 tools/audit_evidence.py . --kind basecamp --json "${audit_args[@]}" \
+            | tee basecamp-evidence/independent-audit.json
       - name: Upload auditable Basecamp evidence
-        if: always()
+        if: always() && steps.sanitize.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
         with:
           name: basecamp-spike-${{ matrix.os }}

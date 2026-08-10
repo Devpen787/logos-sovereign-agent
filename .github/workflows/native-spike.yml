@@ -34,7 +34,33 @@ jobs:
       - name: Materialize the exact dependency lock
         run: |
           nix flake lock
+          git diff --exit-code -- flake.lock
           nix flake metadata --json | tee flake-metadata.json
+      - name: Prove an undeclared dependency fails at the build boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-evidence/dependency-negatives
+          negative_dir="${RUNNER_TEMP}/compile-missing-declaration"
+          mkdir -p "$negative_dir"
+          git archive HEAD | tar -x -C "$negative_dir"
+          cp flake.lock "$negative_dir/flake.lock"
+          jq '.dependencies = []' "$negative_dir/metadata.json" \
+            > "$negative_dir/metadata-without-chat.json"
+          mv "$negative_dir/metadata-without-chat.json" "$negative_dir/metadata.json"
+          jq -e '.dependencies == []' "$negative_dir/metadata.json"
+
+          set +e
+          nix build "path:${negative_dir}#lgx" --print-build-logs \
+            > runtime-evidence/dependency-negatives/compile-missing-declaration.txt 2>&1
+          negative_exit=$?
+          set -e
+          if [ "$negative_exit" -eq 0 ]; then
+            echo "Source compiled after its chat dependency declaration was removed" >&2
+            exit 1
+          fi
+          grep -Eiq 'chat_module|logos_sdk|no member|health|build failed' \
+            runtime-evidence/dependency-negatives/compile-missing-declaration.txt
       - name: Build development package
         run: nix build .#lgx -o result-lgx --print-build-logs
       - name: Build portable package
@@ -136,6 +162,62 @@ jobs:
             --modules-dir ./negative-corrupt-modules \
             --allow-unsigned \
             install --file runtime-evidence/package-negatives/corrupt.lgx
+      - name: Prove a declared but unavailable dependency fails at runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p \
+            runtime-evidence/dependency-negatives \
+            runtime-missing-dependency-modules \
+            runtime-missing-dependency-config
+          cp -RL logos/modules/. runtime-missing-dependency-modules/
+          lgx_path=$(find -L result-lgx -maxdepth 2 -name '*.lgx' -type f -print -quit)
+          test -n "$lgx_path"
+          ./lgpm-result/bin/lgpm \
+            --modules-dir ./runtime-missing-dependency-modules \
+            --allow-unsigned \
+            install --file "$lgx_path" \
+            > runtime-evidence/dependency-negatives/runtime-missing-dependency-install.txt
+
+          ./logos/bin/logoscore -D \
+            --config-dir ./runtime-missing-dependency-config \
+            -m ./runtime-missing-dependency-modules \
+            > runtime-evidence/dependency-negatives/runtime-missing-dependency-daemon.log 2>&1 &
+          missing_daemon_pid=$!
+          cleanup_missing() {
+            ./logos/bin/logoscore --config-dir ./runtime-missing-dependency-config stop \
+              >/dev/null 2>&1 || true
+            wait "$missing_daemon_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup_missing EXIT
+
+          ready=false
+          for attempt in $(seq 1 45); do
+            if ./logos/bin/logoscore \
+              --config-dir ./runtime-missing-dependency-config status --json \
+              >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+
+          set +e
+          ./logos/bin/logoscore \
+            --config-dir ./runtime-missing-dependency-config \
+            load-module sovereign_agent \
+            > runtime-evidence/dependency-negatives/runtime-missing-dependency.txt 2>&1
+          missing_exit=$?
+          set -e
+          if [ "$missing_exit" -eq 0 ]; then
+            echo "Module loaded without its declared chat_module dependency" >&2
+            exit 1
+          fi
+          grep -Eiq 'dependency|chat_module|load|known|failed' \
+            runtime-evidence/dependency-negatives/runtime-missing-dependency.txt
+          cleanup_missing
+          trap - EXIT
       - name: Install and exercise the module through Logos Core
         shell: bash
         run: |
@@ -197,18 +279,11 @@ jobs:
             | tee runtime-evidence/status-call-before-reload.json
           ./logos/bin/logoscore --config-dir ./runtime-config call sovereign_agent chatDependencyHealthy --json \
             | tee runtime-evidence/chat-health-via-declared-caller.json
-          set +e
+          ./logos/bin/logoscore --config-dir ./runtime-config \
+            call capability_module requestModule delivery_module chat_module --json \
+            | tee runtime-evidence/capability/capability-denied-token-issuance.json
           ./logos/bin/logoscore --config-dir ./runtime-config call chat_module health --json \
-            > runtime-evidence/capability/undeclared-caller-denied.txt 2>&1
-          undeclared_exit=$?
-          set -e
-          if [ "$undeclared_exit" -eq 0 ]; then
-            echo "Direct core_service caller unexpectedly bypassed the explicit chat policy" >&2
-            cat runtime-evidence/capability/undeclared-caller-denied.txt >&2
-            exit 1
-          fi
-          grep -Eiq 'denied|unauthori|capabil|token|permission' \
-            runtime-evidence/capability/undeclared-caller-denied.txt
+            | tee runtime-evidence/capability/core-service-administrative-path.json
           ./logos/bin/logoscore --config-dir ./runtime-config stats --json \
             | tee runtime-evidence/stats.json
           ./logos/bin/logoscore --config-dir ./runtime-config reload-module sovereign_agent \
@@ -239,6 +314,18 @@ jobs:
           )
           assert chat_health["status"] == "ok", chat_health
           assert chat_health["result"] is True, chat_health
+
+          denied = json.loads(
+              (evidence / "capability/capability-denied-token-issuance.json").read_text()
+          )
+          assert denied["status"] == "ok", denied
+          assert denied["result"] == "", denied
+
+          administrative = json.loads(
+              (evidence / "capability/core-service-administrative-path.json").read_text()
+          )
+          assert administrative["status"] == "ok", administrative
+          assert administrative["result"] is True, administrative
 
           expected = {
               "module": "sovereign_agent",
@@ -319,6 +406,7 @@ jobs:
           assert stopped["daemon"]["status"] == "not_running", stopped
           PY
       - name: Sanitize captured runtime logs
+        id: sanitize
         if: always()
         run: |
           python3 - <<'PY'
@@ -344,8 +432,12 @@ jobs:
               ]
               assert not leaks, leaks
           PY
+      - name: Independently audit the complete native evidence
+        run: |
+          python3 tools/audit_evidence.py . --json \
+            | tee runtime-evidence/independent-audit.json
       - name: Upload auditable native-spike evidence
-        if: always()
+        if: always() && steps.sanitize.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
         with:
           name: native-spike-${{ matrix.os }}

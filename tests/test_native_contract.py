@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import unittest
@@ -15,6 +16,9 @@ CHAT_COMMIT = "dfe8ccf3eff3e95da0ba54043577270474a216ae"
 DELIVERY_COMMIT = "3258cdb0132e37228aa2519e0c01c0e7429a20dd"
 CHAT_BUILDER_COMMIT = "8e4ea1c1d0e523cea46850f8fd9466dd35af7cc1"
 LOGOSCORE_LIBLOGOS_COMMIT = "be221c5749036343909fa0b109edecfb4d329fdd"
+LEZ_COMMIT = "549cf1159f20fa0c3fe8e88a5ab71de68a5aa34b"
+DOCTEST_COMMIT = "f5a5512674d32005469958406a4d87ee4435c94c"
+ROOT_LOCK_SHA256 = "201fd38cfb5d5cfd5f4a5fe0d71470f92e5d8816555a0b57ced94891ca1ef84a"
 
 
 class NativeContractTests(unittest.TestCase):
@@ -22,11 +26,16 @@ class NativeContractTests(unittest.TestCase):
         for relative in (
             "metadata.json",
             "flake.nix",
+            "flake.lock",
             "CMakeLists.txt",
             "src/sovereign_agent_impl.h",
             "src/sovereign_agent_impl.cpp",
         ):
             self.assertTrue((ROOT / relative).is_file(), relative)
+        self.assertEqual(
+            hashlib.sha256((ROOT / "flake.lock").read_bytes()).hexdigest(),
+            ROOT_LOCK_SHA256,
+        )
 
     def test_metadata_declares_the_exact_chat_dependency(self) -> None:
         metadata = json.loads((ROOT / "metadata.json").read_text())
@@ -82,6 +91,7 @@ class NativeContractTests(unittest.TestCase):
             self.assertIn(commit, workflow)
         for required_command in (
             "nix flake lock",
+            "git diff --exit-code -- flake.lock",
             "nix path-info --json ./result-lgx ./result-lgx-portable",
             'assert all(record.get("narHash") for record in records)',
             '"development": record_for("result-lgx")',
@@ -99,18 +109,25 @@ class NativeContractTests(unittest.TestCase):
             "call sovereign_agent status --json",
             "call sovereign_agent chatDependencyHealthy --json",
             "--access-policy",
-            "undeclared-caller-denied",
+            "capability-denied-token-issuance.json",
+            "core-service-administrative-path.json",
+            "compile-missing-declaration",
+            "runtime-missing-dependency",
             "reload-module sovereign_agent",
             "status-after-daemon-restart.json",
             "status-call-after-daemon-restart.json",
             "status-after-stop.json",
             "Sanitize captured runtime logs",
             "<redacted-uuid>",
+            "tools/audit_evidence.py . --json",
+            "independent-audit.json",
         ):
             self.assertIn(required_command, workflow)
         self.assertIn('stopped["daemon"]["status"] == "not_running"', workflow)
         self.assertNotIn("nix hash path ./result-lgx", workflow)
         self.assertIn("output-identities.json", workflow)
+        self.assertIn("id: sanitize", workflow)
+        self.assertIn("if: always() && steps.sanitize.outcome == 'success'", workflow)
         self.assertNotIn("unexpectedly remained running", workflow)
 
     def test_lane_lock_records_runtime_security_truth(self) -> None:
@@ -124,6 +141,32 @@ class NativeContractTests(unittest.TestCase):
         self.assertEqual(capability["logoscore"]["status"], "enforced-in-headless-lane")
         self.assertEqual(capability["basecamp"]["status"], "explicitly-disabled")
         self.assertFalse(capability["basecamp"]["equivalentToHeadless"])
+        self.assertEqual(
+            capability["logoscore"]["coreServicePath"],
+            "administrative-call-bypasses-peer-token-policy",
+        )
+
+    def test_unmodified_official_reference_parity_is_commit_pinned(self) -> None:
+        workflow = (ROOT / ".github/workflows/reference-parity.yml").read_text()
+        for commit in (CHAT_COMMIT, LEZ_COMMIT, DOCTEST_COMMIT):
+            self.assertIn(commit, workflow)
+        for official_spec in (
+            "official-chat/doctests/chat-module-exchange.test.yaml",
+            "official-chat/doctests/chat-module-group.test.yaml",
+            "official-lez/doctests/logos-execution-zone-runtime.test.yaml",
+        ):
+            self.assertIn(official_spec, workflow)
+        self.assertIn("--release-for logos-chat-module=${CHAT_COMMIT}", workflow)
+        self.assertIn(
+            "--release-for logos-execution-zone-module=${LEZ_COMMIT}", workflow
+        )
+        self.assertNotIn("sed -", workflow)
+        self.assertNotIn("apply_patch", workflow)
+        self.assertEqual(workflow.count("id: sanitize"), 2)
+        self.assertEqual(
+            workflow.count("if: always() && steps.sanitize.outcome == 'success'"),
+            2,
+        )
 
     def test_basecamp_workflow_drives_the_same_public_contract(self) -> None:
         workflow = (ROOT / ".github/workflows/basecamp-spike.yml").read_text()
@@ -153,6 +196,11 @@ class NativeContractTests(unittest.TestCase):
         self.assertIn("basecamp_native_spike.mjs", workflow)
         self.assertIn("Sanitize captured runtime logs", workflow)
         self.assertIn("<redacted-uuid>", workflow)
+        self.assertIn("id: sanitize", workflow)
+        self.assertIn("if: always() && steps.sanitize.outcome == 'success'", workflow)
+        self.assertIn("tools/audit_evidence.py . --kind basecamp --json", workflow)
+        self.assertIn("--require-linux-ldd", workflow)
+        self.assertIn("basecamp-evidence/independent-audit.json", workflow)
         self.assertIn("waitForModuleState", ui_test)
         self.assertIn('"Not loaded"', ui_test)
         self.assertNotIn('unloaded.error !== "Module not connected"', ui_test)

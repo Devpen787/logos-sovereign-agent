@@ -1,7 +1,8 @@
 {
   "schemaVersion": "logos-sovereign-agent-lane-v1",
   "frozenAtUtc": "2026-08-10T13:23:53Z",
-  "status": "native-spike-candidate-not-runtime-proof",
+  "status": "partial-runtime-proof-corrected-candidate-pending",
+  "candidateRootLockSha256": "201fd38cfb5d5cfd5f4a5fe0d71470f92e5d8816555a0b57ced94891ca1ef84a",
   "runtime": {
     "basecamp": {
       "version": "0.2.3",
@@ -52,7 +53,9 @@
     "logoscore": {
       "liblogosCommit": "be221c5749036343909fa0b109edecfb4d329fdd",
       "status": "enforced-in-headless-lane",
-      "evidence": "root flake input resolves to an implementation that parses enforce policy and registers derived allowed callers; frozen Logos Core documentation saying no-op is stale"
+      "evidence": "root flake input resolves to an implementation that parses enforce policy and registers derived allowed callers; frozen Logos Core documentation saying no-op is stale",
+      "coreServicePath": "administrative-call-bypasses-peer-token-policy",
+      "observedCandidateRun": "31407268662: declared sovereign_agent typed call succeeded and the direct core_service administrative call also succeeded; the corrected capability_module empty-token proof for loaded but unlisted delivery_module is pending the next candidate run"
     },
     "basecamp": {
       "liblogosCommit": "4ef9736a1e6a8c05de53fa13d9acf5f4d4570833",
@@ -60,7 +63,7 @@
       "equivalentToHeadless": false,
       "evidence": "app/main.cpp calls logos_core_set_access_policy(nullptr) because current QML callers are not represented as module dependents"
     },
-    "rule": "Prove undeclared-caller denial in Logos Core; disclose that exact Basecamp cannot supply an equivalent denial proof. Do not relabel missing dependency or compile failure as capability denial."
+    "rule": "Prove denial at capability_module token issuance for a loaded unlisted peer, separately record the trusted core_service administrative path, and disclose that exact Basecamp cannot supply an equivalent denial proof. Do not relabel missing dependency, compile failure, or a core_service call as peer capability denial."
   },
   "rule": "Any unmodified official-reference or dual-host compatibility failure stops the spike."
 }

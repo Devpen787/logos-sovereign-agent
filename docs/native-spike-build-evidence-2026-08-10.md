@@ -2,7 +2,7 @@
 
 ## Classification
 
-`minimal-contract-dual-host-logoscore-and-basecamp-proven / protocol-composition-pending`
+`minimal-dual-host-proven / declared-composition-and-basecamp-dual-host-proven / corrected-policy-and-reference-gates-pending`
 
 The source and gate at commit
 `0fc38dc02dcc91fc0c786dce006ee9511d922c7d` completed the public contract
@@ -12,6 +12,14 @@ then proved the same portable package through the real Basecamp 0.2.3 Module
 Inspector on both hosts, including method/event discovery, calls, unload, and
 reload. It does not prove protocol composition, capability-policy parity,
 testnet deployment, or prize readiness.
+
+Commit `d2179730227ec0641d11909baa71f3b9a1d35194` then proved exact
+Chat 0.2.2 and transitive Delivery 0.2.0 composition through generated typed
+glue on both headless hosts. Both native jobs ended red only because the first
+policy assertion incorrectly expected the trusted `core_service` administrative
+path to behave like a peer capability request. The same composed package also
+passed the exact Basecamp path on both hosts, including the explicit Linux
+dynamic closure.
 
 ## Public evidence
 
@@ -27,6 +35,12 @@ testnet deployment, or prize readiness.
 - Basecamp macOS job: [93507057950](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31404402665/job/93507057950)
 - Basecamp Linux artifact: [9069852891](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31404402665/artifacts/9069852891), retained through 2026-09-09
 - Basecamp macOS artifact: [9070004456](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31404402665/artifacts/9070004456), retained through 2026-09-09
+- Declared-composition native workflow: [run 31407268662](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31407268662)
+- Composition Linux artifact: [9071379824](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31407268662/artifacts/9071379824), SHA-256 `81fb509906ad78b8dcb7cbe7d5f4aa6c03a679da76973939756df4834821e093`
+- Composition macOS artifact: [9071839374](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31407268662/artifacts/9071839374), SHA-256 `880c5757557a97435c3dd246c2e3f33dbdc699f3041345db3894de304464acdb`
+- Composed Basecamp workflow: [run 31407268710](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31407268710)
+- Composed Basecamp Linux artifact: [9071850377](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31407268710/artifacts/9071850377), SHA-256 `4560086fe1159342e55e1811feff544765eb6cc82764c3dfc7e04ba787c66611`
+- Composed Basecamp macOS artifact: [9072362864](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31407268710/artifacts/9072362864), SHA-256 `d5ddb2f2fe6bb5cebc93aaf35ff00b83f30487d870b47d4d8f14e51cb81e9d1a`
 
 ## Exact output identities
 
@@ -42,6 +56,25 @@ on both hosts.
 | macOS 15 | portable, `darwin-arm64` | `431a0143007f714bf78ebbf127eadf823c8ce19a6d1964440b9df11472ecca10` |
 
 Each output contains `logos-sovereign_agent-module-lib.lgx`.
+
+The declared-composition root lock is byte-identical in the Ubuntu and macOS
+headless and Basecamp artifacts, with SHA-256
+`201fd38cfb5d5cfd5f4a5fe0d71470f92e5d8816555a0b57ced94891ca1ef84a`.
+It is committed in the next candidate so the workflow must prove `nix flake
+lock` leaves it unchanged.
+
+| Host | Variant | NAR hash | LGX SHA-256 |
+|---|---|---|---|
+| Ubuntu 24.04 | development | `sha256-gGmAeBxsDaOQsuQsqNopIbo/FDBr844PpJogVhv3C6o=` | `439a34cfb1f49414d69607d2be04fa2900528cf4fe6a5b095eccf852352483b6` |
+| Ubuntu 24.04 | portable | `sha256-NULDvR/zDXGDrmOoS/rp2RoPJngkXC1BWGwdROM56p4=` | `d2a45fc8d1166c30509cbfc056ab95db78814f1a53c683bfa671131de1572d33` |
+| macOS 15 | development | `sha256-yfP5naErO28VZS6dokDOIsPdeOLUoAge021UAdnnsjM=` | `027b72c5db15d2322742a2516058c71a2ec4d6724eefa5ae781a19bb7c9f6da6` |
+| macOS 15 | portable | `sha256-fuPo9l2njtUKzDlIjj1pvVLIOKyglSk4h+nzLa7PO9I=` | `ce2f134c99b451389745a27eb39195dda9a9e7d43891c493c25792f0903575c8` |
+
+Each composed Basecamp artifact contains the same portable LGX SHA-256 as its
+headless host. The Ubuntu screenshot SHA-256 is
+`1ed96807297693bd8678475ee51b8bb335a698dcf66e95320622627fd1380c36`; the
+macOS screenshot SHA-256 is
+`2a71d5a52075102941f20f00da4f6117f48b26db564da7476c99100f189074ab`.
 
 An earlier revision mislabeled values from `nix hash path` over the result
 links as the NAR identities of the two outputs. Those four claims are
@@ -68,9 +101,9 @@ Both host jobs proved all of the following against exact pinned releases:
 
 ## Disclosed findings
 
-The exact Basecamp run proves runtime viability on Ubuntu, but it predates the
-explicit Linux `ldd` closure assertion now staged in the next candidate. Do
-not relabel successful UI execution as a captured dependency-closure record.
+The composed Basecamp run proves runtime viability on both hosts and captures
+an explicit Linux `ldd` closure with no unresolved libraries. macOS does not
+have an equivalent `ldd` assertion.
 
 Exact Basecamp 0.2.3 calls `logos_core_set_access_policy(nullptr)` and explains
 that policy enforcement is temporarily disabled because QML callers are not
@@ -80,6 +113,16 @@ root `logos-liblogos_8` input to commit
 `be221c5749036343909fa0b109edecfb4d329fdd`, which implements parsed enforce
 policies and derived caller restrictions. Capability denial therefore must be
 proved in the headless lane and disclosed as non-equivalent in Basecamp.
+
+Candidate run
+[`31407268662`](https://github.com/Devpen787/logos-sovereign-agent/actions/runs/31407268662)
+proved that the declared typed `sovereign_agent -> chat_module` health call
+returns `true`, but it also falsified the initial assumption that an
+administrative `core_service -> chat_module` CLI call should be denied. The
+core-service call returned `true`. The corrected gate tests the capability
+module's actual peer-token boundary instead: a loaded but unlisted
+`delivery_module` requesting a Chat token must receive an empty token, while
+the core-service result is retained as a separate administrative-path record.
 
 The Basecamp logs expose process-local UUID tokens while the runtime is alive.
 They are invalid after process exit, but future evidence collectors redact all
@@ -109,9 +152,9 @@ completed on both hosts. This is a CI-maintenance warning, not module evidence.
 
 ## Next gate
 
-Build the exact Chat 0.2.2 and Delivery 0.2.0 dependencies, prove the generated
-typed `modules().chat_module.health()` call in both hosts, prove an explicit
-undeclared-caller denial in Logos Core, repeat the Basecamp UI lifecycle with
-the composed package set, capture the Linux dynamic-library closure, and
-sanitize all uploaded logs. No product feature work begins from this result
+Prove the corrected capability-module peer-token denial, compile-time
+undeclared-dependency rejection, runtime missing-dependency rejection, and
+unmodified official Chat/LEZ reference specifications. Commit the generated
+dependency lock and make every uploaded artifact pass the independent
+fail-closed auditor. No product feature work begins from this partial result
 alone.
