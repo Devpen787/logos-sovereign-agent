@@ -125,12 +125,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          audit_args=()
           if [ "$RUNNER_OS" = "Linux" ]; then
-            audit_args+=(--require-linux-ldd)
+            python3 tools/audit_evidence.py . --kind basecamp \
+              --require-linux-ldd --json \
+              | tee basecamp-evidence/independent-audit.json
+          else
+            python3 tools/audit_evidence.py . --kind basecamp --json \
+              | tee basecamp-evidence/independent-audit.json
           fi
-          python3 tools/audit_evidence.py . --kind basecamp --json "${audit_args[@]}" \
-            | tee basecamp-evidence/independent-audit.json
       - name: Upload auditable Basecamp evidence
         if: always() && steps.sanitize.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1

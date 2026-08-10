@@ -201,6 +201,8 @@ class NativeContractTests(unittest.TestCase):
         self.assertIn("tools/audit_evidence.py . --kind basecamp --json", workflow)
         self.assertIn("--require-linux-ldd", workflow)
         self.assertIn("basecamp-evidence/independent-audit.json", workflow)
+        self.assertNotIn("audit_args=()", workflow)
+        self.assertNotIn('"${audit_args[@]}"', workflow)
         self.assertIn("waitForModuleState", ui_test)
         self.assertIn('"Not loaded"', ui_test)
         self.assertNotIn('unloaded.error !== "Module not connected"', ui_test)
