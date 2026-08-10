@@ -62,6 +62,8 @@ class NativeContractTests(unittest.TestCase):
             self.assertIn(commit, workflow)
         for required_command in (
             "nix flake lock",
+            "nix path-info --json ./result-lgx ./result-lgx-portable",
+            'assert all(record.get("narHash") for record in records)',
             "install --file",
             "#cli-portable",
             "--require-signatures",
@@ -80,6 +82,7 @@ class NativeContractTests(unittest.TestCase):
         ):
             self.assertIn(required_command, workflow)
         self.assertIn('stopped["daemon"]["status"] == "not_running"', workflow)
+        self.assertNotIn("nix hash path ./result-lgx", workflow)
         self.assertNotIn("unexpectedly remained running", workflow)
 
     def test_basecamp_workflow_drives_the_same_public_contract(self) -> None:
@@ -104,6 +107,7 @@ class NativeContractTests(unittest.TestCase):
         self.assertIn("cli-portable", workflow)
         self.assertIn("bin-bundle-dir-inspector", workflow)
         self.assertIn("libopengl0", workflow)
+        self.assertIn("libegl1", workflow)
         self.assertIn("basecamp_native_spike.mjs", workflow)
         self.assertIn("waitForModuleState", ui_test)
         self.assertIn('"Not loaded"', ui_test)

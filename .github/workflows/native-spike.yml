@@ -38,9 +38,17 @@ jobs:
         run: nix build .#lgx-portable -o result-lgx-portable --print-build-logs
       - name: Record exact output identities
         run: |
-          nix path-info --json-format 1 ./result-lgx ./result-lgx-portable | tee nix-path-info.json
-          nix hash path ./result-lgx | tee result-lgx.narhash
-          nix hash path ./result-lgx-portable | tee result-lgx-portable.narhash
+          nix path-info --json ./result-lgx ./result-lgx-portable | tee nix-path-info.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("nix-path-info.json").read_text())
+          records = list(data.values()) if isinstance(data, dict) else data
+          assert isinstance(records, list) and len(records) == 2, data
+          assert all(isinstance(record, dict) for record in records), data
+          assert all(record.get("narHash") for record in records), data
+          PY
           shasum -a 256 flake.lock result-lgx/*.lgx result-lgx-portable/*.lgx | tee artifact-sha256.txt
           find -L result-lgx result-lgx-portable -type f -maxdepth 4 -print | sort
       - name: Build pinned Logos Core and package manager
@@ -268,8 +276,6 @@ jobs:
             flake.lock
             flake-metadata.json
             nix-path-info.json
-            result-lgx.narhash
-            result-lgx-portable.narhash
             result-lgx/*.lgx
             result-lgx-portable/*.lgx
             runtime-evidence/
