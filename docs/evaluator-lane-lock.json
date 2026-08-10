@@ -11,7 +11,9 @@
     "logoscore": {
       "version": "0.2.2",
       "commit": "8720885dd821cd63eb1da00c842328cbfd1fe5fa",
-      "flakeLockSha256": "e80f0e22202761099556d2e911e594574ff64d0169b0e02fb9b5e97fc400acdd"
+      "flakeLockSha256": "e80f0e22202761099556d2e911e594574ff64d0169b0e02fb9b5e97fc400acdd",
+      "rootLiblogosNode": "logos-liblogos_8",
+      "rootLiblogosCommit": "be221c5749036343909fa0b109edecfb4d329fdd"
     },
     "lgpm": {
       "version": "0.2.1",
@@ -25,10 +27,40 @@
     }
   },
   "nativeModules": {
-    "chat": "0.2.2",
-    "delivery": "0.2.0",
-    "storage": "2.1.0",
-    "lez": "lez_core@0.4.0"
+    "chat": {
+      "version": "0.2.2",
+      "commit": "dfe8ccf3eff3e95da0ba54043577270474a216ae",
+      "lockedModuleBuilderCommit": "8e4ea1c1d0e523cea46850f8fd9466dd35af7cc1"
+    },
+    "delivery": {
+      "version": "0.2.0",
+      "commit": "3258cdb0132e37228aa2519e0c01c0e7429a20dd"
+    },
+    "storage": {
+      "version": "2.1.0",
+      "commit": "7307910f0e5728e08c77820e21698e903c73d987"
+    },
+    "lez": {
+      "name": "lez_core",
+      "commit": "549cf1159f20fa0c3fe8e88a5ab71de68a5aa34b",
+      "metadataVersion": "0.4.0",
+      "runtimeVersion": "0.3.0",
+      "status": "upstream-version-ambiguity-maintainer-clarification-required"
+    }
+  },
+  "capabilityEnforcement": {
+    "logoscore": {
+      "liblogosCommit": "be221c5749036343909fa0b109edecfb4d329fdd",
+      "status": "enforced-in-headless-lane",
+      "evidence": "root flake input resolves to an implementation that parses enforce policy and registers derived allowed callers; frozen Logos Core documentation saying no-op is stale"
+    },
+    "basecamp": {
+      "liblogosCommit": "4ef9736a1e6a8c05de53fa13d9acf5f4d4570833",
+      "status": "explicitly-disabled",
+      "equivalentToHeadless": false,
+      "evidence": "app/main.cpp calls logos_core_set_access_policy(nullptr) because current QML callers are not represented as module dependents"
+    },
+    "rule": "Prove undeclared-caller denial in Logos Core; disclose that exact Basecamp cannot supply an equivalent denial proof. Do not relabel missing dependency or compile failure as capability denial."
   },
   "rule": "Any unmodified official-reference or dual-host compatibility failure stops the spike."
 }

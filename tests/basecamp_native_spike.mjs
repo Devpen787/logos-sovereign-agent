@@ -131,7 +131,11 @@ test("Basecamp loads and drives the sovereign agent public contract", async (app
   );
   const methodNames = new Set(methods.map((item) => item.name));
   const eventNames = new Set(events.map((item) => item.name));
-  if (!methodNames.has("version") || !methodNames.has("status")) {
+  if (
+    !methodNames.has("version") ||
+    !methodNames.has("status") ||
+    !methodNames.has("chatDependencyHealthy")
+  ) {
     throw new Error(`public methods missing: ${JSON.stringify(methods)}`);
   }
   if (!eventNames.has("statusChanged")) {
@@ -139,6 +143,15 @@ test("Basecamp loads and drives the sovereign agent public contract", async (app
   }
 
   const status = await callModule(app, "status");
+  const chatDependencyHealthy = await callModule(
+    app,
+    "chatDependencyHealthy",
+  );
+  if (chatDependencyHealthy.result !== true) {
+    throw new Error(
+      `chat dependency did not answer through typed composition: ${JSON.stringify(chatDependencyHealthy)}`,
+    );
+  }
   const decodedStatus = JSON.parse(status.result);
   const expectedStatus = {
     module: "sovereign_agent",
@@ -160,6 +173,7 @@ test("Basecamp loads and drives the sovereign agent public contract", async (app
         "Methods",
         "version",
         "status",
+        "chatDependencyHealthy",
         "Events",
         "statusChanged",
       ]);
@@ -200,6 +214,7 @@ test("Basecamp loads and drives the sovereign agent public contract", async (app
         module: "sovereign_agent",
         version,
         status,
+        chatDependencyHealthy,
         methods,
         events,
         unloaded,

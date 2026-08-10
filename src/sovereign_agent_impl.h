@@ -13,6 +13,9 @@ public:
     /// Returns deterministic JSON describing this bounded native spike.
     std::string status();
 
+    /// Proves typed, declared composition by calling chat_module.health().
+    bool chatDependencyHealthy();
+
 logos_events:
     /// Emitted with the exact status value returned by status().
     void statusChanged(const std::string& status);

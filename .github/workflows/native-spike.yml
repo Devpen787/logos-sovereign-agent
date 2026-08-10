@@ -11,7 +11,10 @@ permissions:
 
 env:
   LOGOSCORE_COMMIT: 8720885dd821cd63eb1da00c842328cbfd1fe5fa
+  LOGOSCORE_LIBLOGOS_COMMIT: be221c5749036343909fa0b109edecfb4d329fdd
   LGPM_COMMIT: 202af6fa0f0f4493bc59c8a609dff9326f78a18d
+  CHAT_COMMIT: dfe8ccf3eff3e95da0ba54043577270474a216ae
+  DELIVERY_COMMIT: 3258cdb0132e37228aa2519e0c01c0e7429a20dd
 
 jobs:
   build-lgx:
@@ -44,10 +47,24 @@ jobs:
           from pathlib import Path
 
           data = json.loads(Path("nix-path-info.json").read_text())
-          records = list(data.values()) if isinstance(data, dict) else data
-          assert isinstance(records, list) and len(records) == 2, data
+          assert isinstance(data, dict), data
+          records = list(data.values())
+          assert len(records) == 2, data
           assert all(isinstance(record, dict) for record in records), data
           assert all(record.get("narHash") for record in records), data
+
+          def record_for(link):
+              store_path = str(Path(link).resolve())
+              assert store_path in data, (store_path, data)
+              return {"storePath": store_path, **data[store_path]}
+
+          identities = {
+              "development": record_for("result-lgx"),
+              "portable": record_for("result-lgx-portable"),
+          }
+          Path("output-identities.json").write_text(
+              json.dumps(identities, indent=2, sort_keys=True) + "\n"
+          )
           PY
           shasum -a 256 flake.lock result-lgx/*.lgx result-lgx-portable/*.lgx | tee artifact-sha256.txt
           find -L result-lgx result-lgx-portable -type f -maxdepth 4 -print | sort
@@ -56,6 +73,8 @@ jobs:
           nix build "github:logos-co/logos-logoscore-cli/${LOGOSCORE_COMMIT}" -o logos --print-build-logs
           nix build "github:logos-co/logos-package-manager/${LGPM_COMMIT}#cli" -o lgpm-result --print-build-logs
           nix build "github:logos-co/logos-package-manager/${LGPM_COMMIT}#cli-portable" -o lgpm-portable-result --print-build-logs
+          nix build "github:logos-co/logos-chat-module/${CHAT_COMMIT}#lgx" -o chat-lgx --print-build-logs
+          nix build "github:logos-co/logos-delivery-module/${DELIVERY_COMMIT}#lgx" -o delivery-lgx --print-build-logs
       - name: Prove package-policy negative paths
         shell: bash
         run: |
@@ -121,10 +140,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p modules runtime-evidence runtime-config
+          mkdir -p modules runtime-evidence runtime-evidence/capability runtime-config
           cp -RL logos/modules/. modules/
           lgx_path=$(find -L result-lgx -maxdepth 2 -name '*.lgx' -type f -print -quit)
+          chat_lgx_path=$(find -L chat-lgx -maxdepth 2 -name '*.lgx' -type f -print -quit)
+          delivery_lgx_path=$(find -L delivery-lgx -maxdepth 2 -name '*.lgx' -type f -print -quit)
           test -n "$lgx_path"
+          test -n "$chat_lgx_path"
+          test -n "$delivery_lgx_path"
+          ./lgpm-result/bin/lgpm \
+            --modules-dir ./modules \
+            --allow-unsigned \
+            install --file "$delivery_lgx_path" | tee runtime-evidence/lgpm-install-delivery.txt
+          ./lgpm-result/bin/lgpm \
+            --modules-dir ./modules \
+            --allow-unsigned \
+            install --file "$chat_lgx_path" | tee runtime-evidence/lgpm-install-chat.txt
           ./lgpm-result/bin/lgpm \
             --modules-dir ./modules \
             --allow-unsigned \
@@ -132,7 +163,9 @@ jobs:
           ./lgpm-result/bin/lgpm --modules-dir ./modules info sovereign_agent --json \
             | tee runtime-evidence/lgpm-info.json
 
+          access_policy='{"version":1,"mode":"enforce","restrictions":{"chat_module":{"allowedCallers":["sovereign_agent"]}}}'
           ./logos/bin/logoscore -D --config-dir ./runtime-config -m ./modules \
+            --access-policy "$access_policy" \
             > runtime-evidence/daemon.log 2>&1 &
           daemon_pid=$!
           cleanup() {
@@ -162,6 +195,20 @@ jobs:
             | tee runtime-evidence/version-call.json
           ./logos/bin/logoscore --config-dir ./runtime-config call sovereign_agent status --json \
             | tee runtime-evidence/status-call-before-reload.json
+          ./logos/bin/logoscore --config-dir ./runtime-config call sovereign_agent chatDependencyHealthy --json \
+            | tee runtime-evidence/chat-health-via-declared-caller.json
+          set +e
+          ./logos/bin/logoscore --config-dir ./runtime-config call chat_module health --json \
+            > runtime-evidence/capability/undeclared-caller-denied.txt 2>&1
+          undeclared_exit=$?
+          set -e
+          if [ "$undeclared_exit" -eq 0 ]; then
+            echo "Direct core_service caller unexpectedly bypassed the explicit chat policy" >&2
+            cat runtime-evidence/capability/undeclared-caller-denied.txt >&2
+            exit 1
+          fi
+          grep -Eiq 'denied|unauthori|capabil|token|permission' \
+            runtime-evidence/capability/undeclared-caller-denied.txt
           ./logos/bin/logoscore --config-dir ./runtime-config stats --json \
             | tee runtime-evidence/stats.json
           ./logos/bin/logoscore --config-dir ./runtime-config reload-module sovereign_agent \
@@ -181,11 +228,17 @@ jobs:
           assert info["name"] == "sovereign_agent", info
           assert info["status"] == "loaded", info
           methods = {method["name"] for method in info["methods"]}
-          assert {"version", "status"}.issubset(methods), info
+          assert {"version", "status", "chatDependencyHealthy"}.issubset(methods), info
 
           version = json.loads((evidence / "version-call.json").read_text())
           assert version["status"] == "ok", version
           assert version["result"] == "0.1.0", version
+
+          chat_health = json.loads(
+              (evidence / "chat-health-via-declared-caller.json").read_text()
+          )
+          assert chat_health["status"] == "ok", chat_health
+          assert chat_health["result"] is True, chat_health
 
           expected = {
               "module": "sovereign_agent",
@@ -217,6 +270,7 @@ jobs:
           PY
 
           ./logos/bin/logoscore -D --config-dir ./runtime-config -m ./modules \
+            --access-policy "$access_policy" \
             > runtime-evidence/daemon-after-restart.log 2>&1 &
           daemon_pid=$!
           trap cleanup EXIT
@@ -264,6 +318,32 @@ jobs:
           )
           assert stopped["daemon"]["status"] == "not_running", stopped
           PY
+      - name: Sanitize captured runtime logs
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          uuid = re.compile(
+              r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b"
+          )
+          evidence = Path("runtime-evidence")
+          if evidence.is_dir():
+              for captured in evidence.rglob("*"):
+                  if not captured.is_file() or captured.suffix not in {".log", ".txt"}:
+                      continue
+                  content = captured.read_text(errors="replace")
+                  captured.write_text(uuid.sub("<redacted-uuid>", content))
+              leaks = [
+                  str(captured)
+                  for captured in evidence.rglob("*")
+                  if captured.is_file()
+                  and captured.suffix in {".log", ".txt"}
+                  and uuid.search(captured.read_text(errors="replace"))
+              ]
+              assert not leaks, leaks
+          PY
       - name: Upload auditable native-spike evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
@@ -276,6 +356,7 @@ jobs:
             flake.lock
             flake-metadata.json
             nix-path-info.json
+            output-identities.json
             result-lgx/*.lgx
             result-lgx-portable/*.lgx
             runtime-evidence/

@@ -2,10 +2,11 @@
   description = "Logos Sovereign Agent native module";
 
   inputs = {
-    logos-module-builder.url = "github:logos-co/logos-module-builder/2b59cb8e855894f7e7a064b15bfae409f288080b";
+    chat_module.url = "github:logos-co/logos-chat-module/dfe8ccf3eff3e95da0ba54043577270474a216ae";
+    logos-module-builder.follows = "chat_module/logos-module-builder";
   };
 
-  outputs = inputs@{ logos-module-builder, ... }:
+  outputs = inputs@{ logos-module-builder, chat_module, ... }:
     logos-module-builder.lib.mkLogosModule {
       src = ./.;
       configFile = ./metadata.json;
