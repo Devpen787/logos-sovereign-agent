@@ -1,0 +1,16 @@
+result
+result-*
+.direnv/
+.devenv/
+build/
+cmake-build-*/
+*.lgx
+*.dylib
+*.so
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.env.*
+!.env.example
+evidence/runtime/

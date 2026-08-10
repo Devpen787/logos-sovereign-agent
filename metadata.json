@@ -1,0 +1,24 @@
+{
+  "name": "sovereign_agent",
+  "display_name": "Sovereign Agent",
+  "version": "0.1.0",
+  "type": "core",
+  "interface": "universal",
+  "category": "agent",
+  "description": "Policy-bounded autonomous agent module for the native Logos stack",
+  "main": "sovereign_agent_plugin",
+  "dependencies": [],
+  "nix": {
+    "packages": {
+      "build": [],
+      "runtime": []
+    },
+    "external_libraries": [],
+    "cmake": {
+      "find_packages": [],
+      "extra_sources": [],
+      "extra_include_dirs": [],
+      "extra_link_libraries": []
+    }
+  }
+}

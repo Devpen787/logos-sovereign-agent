@@ -1,0 +1,38 @@
+name: Native spike
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-lgx:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Record resolved flake metadata without mutating source
+        run: nix flake metadata --json --no-write-lock-file | tee flake-metadata.json
+      - name: Build development package
+        run: nix build --no-write-lock-file .#lgx -o result-lgx --print-build-logs
+      - name: Build portable package
+        run: nix build --no-write-lock-file .#lgx-portable -o result-lgx-portable --print-build-logs
+      - name: Record exact output identities
+        run: |
+          nix path-info --json ./result-lgx ./result-lgx-portable | tee nix-path-info.json
+          nix hash path ./result-lgx | tee result-lgx.narhash
+          nix hash path ./result-lgx-portable | tee result-lgx-portable.narhash
+          find -L result-lgx result-lgx-portable -type f -maxdepth 4 -print | sort
