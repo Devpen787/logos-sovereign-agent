@@ -134,12 +134,17 @@ jobs:
             | tee runtime-evidence/stop.json
           wait "$daemon_pid"
           trap - EXIT
-          if ./logos/bin/logoscore --config-dir ./runtime-config status --json \
-            > runtime-evidence/status-after-stop.json 2>&1; then
-            echo "logoscore unexpectedly remained running" >&2
-            exit 1
-          fi
-          grep -q 'not_running' runtime-evidence/status-after-stop.json
+          ./logos/bin/logoscore --config-dir ./runtime-config status --json \
+            > runtime-evidence/status-after-stop.json 2>&1 || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          stopped = json.loads(
+              Path("runtime-evidence/status-after-stop.json").read_text()
+          )
+          assert stopped["daemon"]["status"] == "not_running", stopped
+          PY
       - name: Upload auditable native-spike evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1

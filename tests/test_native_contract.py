@@ -69,6 +69,8 @@ class NativeContractTests(unittest.TestCase):
             "status-after-stop.json",
         ):
             self.assertIn(required_command, workflow)
+        self.assertIn('stopped["daemon"]["status"] == "not_running"', workflow)
+        self.assertNotIn("unexpectedly remained running", workflow)
 
     def test_repository_has_no_local_path_or_secret_markers(self) -> None:
         forbidden = (
