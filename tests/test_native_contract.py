@@ -9,6 +9,8 @@ BUILDER_COMMIT = "2b59cb8e855894f7e7a064b15bfae409f288080b"
 LOGOSCORE_COMMIT = "8720885dd821cd63eb1da00c842328cbfd1fe5fa"
 LGPM_COMMIT = "202af6fa0f0f4493bc59c8a609dff9326f78a18d"
 UPLOAD_ARTIFACT_COMMIT = "ea165f8d65b6e75b540449e92b4886f43607fa02"
+BASECAMP_COMMIT = "aa237766baf61404e12da86b7303cb41065464c9"
+BASECAMP_QT_MCP_COMMIT = "1fea509485a48ab185fafae8dc21bdbcc808a07e"
 
 
 class NativeContractTests(unittest.TestCase):
@@ -71,6 +73,29 @@ class NativeContractTests(unittest.TestCase):
             self.assertIn(required_command, workflow)
         self.assertIn('stopped["daemon"]["status"] == "not_running"', workflow)
         self.assertNotIn("unexpectedly remained running", workflow)
+
+    def test_basecamp_workflow_drives_the_same_public_contract(self) -> None:
+        workflow = (ROOT / ".github/workflows/basecamp-spike.yml").read_text()
+        ui_test = (ROOT / "tests/basecamp_native_spike.mjs").read_text()
+        for commit in (
+            BASECAMP_COMMIT,
+            BASECAMP_QT_MCP_COMMIT,
+            LGPM_COMMIT,
+            UPLOAD_ARTIFACT_COMMIT,
+        ):
+            self.assertIn(commit, workflow)
+        for required_contract in (
+            "Sovereign Agent",
+            "sovereign_agent",
+            "version",
+            "status",
+            "statusChanged",
+            "native_spike",
+        ):
+            self.assertIn(required_contract, ui_test)
+        self.assertIn("cli-portable", workflow)
+        self.assertIn("bin-bundle-dir-inspector", workflow)
+        self.assertIn("basecamp_native_spike.mjs", workflow)
 
     def test_repository_has_no_local_path_or_secret_markers(self) -> None:
         forbidden = (
