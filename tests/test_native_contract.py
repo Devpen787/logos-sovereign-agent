@@ -6,6 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER_COMMIT = "2b59cb8e855894f7e7a064b15bfae409f288080b"
+LOGOSCORE_COMMIT = "8720885dd821cd63eb1da00c842328cbfd1fe5fa"
+LGPM_COMMIT = "202af6fa0f0f4493bc59c8a609dff9326f78a18d"
+UPLOAD_ARTIFACT_COMMIT = "ea165f8d65b6e75b540449e92b4886f43607fa02"
 
 
 class NativeContractTests(unittest.TestCase):
@@ -50,6 +53,22 @@ class NativeContractTests(unittest.TestCase):
         self.assertIn('"module":"sovereign_agent"', implementation)
         self.assertIn('"state":"native_spike"', implementation)
         self.assertIn("statusChanged(result);", implementation)
+
+    def test_native_workflow_pins_and_exercises_the_evaluator_lane(self) -> None:
+        workflow = (ROOT / ".github/workflows/native-spike.yml").read_text()
+        for commit in (LOGOSCORE_COMMIT, LGPM_COMMIT, UPLOAD_ARTIFACT_COMMIT):
+            self.assertIn(commit, workflow)
+        for required_command in (
+            "nix flake lock",
+            "install --file",
+            "load-module sovereign_agent",
+            "module-info sovereign_agent --json",
+            "call sovereign_agent version --json",
+            "call sovereign_agent status --json",
+            "reload-module sovereign_agent",
+            "status-after-stop.json",
+        ):
+            self.assertIn(required_command, workflow)
 
     def test_repository_has_no_local_path_or_secret_markers(self) -> None:
         forbidden = (

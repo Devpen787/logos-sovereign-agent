@@ -5,12 +5,16 @@ verifiable wallet, storage, messaging, and A2A actions.
 
 ## Current evidence state
 
-`native-spike / local-contract-only`
+`native-spike / cross-platform-build-proven / runtime-load-pending`
 
-The repository currently contains the minimal Qt-free universal-module source
-and semantic contract tests. It does **not** yet claim a successful Nix build,
-`.lgx` package, Logos Core load, Basecamp integration, testnet agent, public
-demo, or LP-0008 submission.
+The minimal Qt-free universal module has passed semantic contract checks and
+produced both development and portable `.lgx` packages on Ubuntu 24.04 and
+macOS 15. The next hard gate is installing and exercising those artifacts in
+the pinned Logos Core runtime. It does **not** yet claim Basecamp integration,
+a testnet agent, public demo, or LP-0008 submission.
+
+The initial build evidence is recorded in
+[`docs/native-spike-build-evidence-2026-08-10.md`](docs/native-spike-build-evidence-2026-08-10.md).
 
 ## First proof target
 
