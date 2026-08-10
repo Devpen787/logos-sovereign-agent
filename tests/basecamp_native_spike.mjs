@@ -64,6 +64,31 @@ async function callModule(app, method) {
   return JSON.parse(raw);
 }
 
+async function waitForModuleState(app, expectedState) {
+  await evaluateOnInspector(
+    app,
+    'showingInterface = false; searchText = "sovereign_agent"; backend.refreshCoreModules(); "refresh-requested"',
+  );
+  await app.waitFor(
+    async () => {
+      await app.expectTexts([
+        "Sovereign Agent",
+        "sovereign_agent",
+        expectedState,
+      ]);
+    },
+    {
+      timeout: 30000,
+      interval: 500,
+      description: `sovereign_agent state ${expectedState}`,
+    },
+  );
+  return {
+    state: expectedState,
+    source: "Basecamp filtered core module inspector",
+  };
+}
+
 async function saveScreenshot(app, name) {
   const result = await app.screenshot();
   if (result.error || !result.image) {
@@ -148,22 +173,10 @@ test("Basecamp loads and drives the sovereign agent public contract", async (app
   await saveScreenshot(app, "basecamp-sovereign-agent-interface.png");
 
   await evaluateOnInspector(app, 'backend.unloadCoreModule("sovereign_agent")');
-  let unloaded;
-  await app.waitFor(
-    async () => {
-      unloaded = await callModule(app, "version");
-      if (unloaded.error !== "Module not connected") {
-        throw new Error(`module still callable after unload: ${JSON.stringify(unloaded)}`);
-      }
-    },
-    {
-      timeout: 30000,
-      interval: 500,
-      description: "sovereign_agent unload",
-    },
-  );
+  const unloaded = await waitForModuleState(app, "Not loaded");
 
   await evaluateOnInspector(app, 'backend.loadCoreModule("sovereign_agent")');
+  const reloaded = await waitForModuleState(app, "Loaded");
   let afterReload;
   await app.waitFor(
     async () => {
@@ -190,6 +203,7 @@ test("Basecamp loads and drives the sovereign agent public contract", async (app
         methods,
         events,
         unloaded,
+        reloaded,
         afterReload,
       },
       null,

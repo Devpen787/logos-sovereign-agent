@@ -47,6 +47,68 @@ jobs:
         run: |
           nix build "github:logos-co/logos-logoscore-cli/${LOGOSCORE_COMMIT}" -o logos --print-build-logs
           nix build "github:logos-co/logos-package-manager/${LGPM_COMMIT}#cli" -o lgpm-result --print-build-logs
+          nix build "github:logos-co/logos-package-manager/${LGPM_COMMIT}#cli-portable" -o lgpm-portable-result --print-build-logs
+      - name: Prove package-policy negative paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p \
+            runtime-evidence/package-negatives \
+            negative-signature-modules \
+            negative-dev-mismatch-modules \
+            negative-portable-mismatch-modules \
+            negative-corrupt-modules
+          dev_lgx=$(find -L result-lgx -maxdepth 2 -name '*.lgx' -type f -print -quit)
+          portable_lgx=$(find -L result-lgx-portable -maxdepth 2 -name '*.lgx' -type f -print -quit)
+          test -n "$dev_lgx"
+          test -n "$portable_lgx"
+
+          expect_rejection() {
+            local label=$1
+            local expected=$2
+            shift 2
+            set +e
+            "$@" > "runtime-evidence/package-negatives/${label}.txt" 2>&1
+            local exit_code=$?
+            set -e
+            if [ "$exit_code" -eq 0 ]; then
+              echo "Expected ${label} to be rejected" >&2
+              return 1
+            fi
+            grep -Eiq "$expected" "runtime-evidence/package-negatives/${label}.txt"
+          }
+
+          expect_rejection signature-required 'unsigned|signature' \
+            ./lgpm-result/bin/lgpm \
+            --modules-dir ./negative-signature-modules \
+            --require-signatures \
+            install --file "$dev_lgx"
+          expect_rejection dev-cli-rejects-portable 'variant|does not contain' \
+            ./lgpm-result/bin/lgpm \
+            --modules-dir ./negative-dev-mismatch-modules \
+            --allow-unsigned \
+            install --file "$portable_lgx"
+          expect_rejection portable-cli-rejects-dev 'variant|does not contain' \
+            ./lgpm-portable-result/bin/lgpm \
+            --modules-dir ./negative-portable-mismatch-modules \
+            --allow-unsigned \
+            install --file "$dev_lgx"
+
+          python3 - "$dev_lgx" <<'PY'
+          import sys
+          from pathlib import Path
+
+          source = Path(sys.argv[1]).read_bytes()
+          assert len(source) > 2
+          Path("runtime-evidence/package-negatives/corrupt.lgx").write_bytes(
+              source[: len(source) // 2]
+          )
+          PY
+          expect_rejection corrupt-archive 'failed|invalid|load|archive|package' \
+            ./lgpm-result/bin/lgpm \
+            --modules-dir ./negative-corrupt-modules \
+            --allow-unsigned \
+            install --file runtime-evidence/package-negatives/corrupt.lgx
       - name: Install and exercise the module through Logos Core
         shell: bash
         run: |
@@ -142,6 +204,55 @@ jobs:
 
           stopped = json.loads(
               Path("runtime-evidence/status-after-stop.json").read_text()
+          )
+          assert stopped["daemon"]["status"] == "not_running", stopped
+          PY
+
+          ./logos/bin/logoscore -D --config-dir ./runtime-config -m ./modules \
+            > runtime-evidence/daemon-after-restart.log 2>&1 &
+          daemon_pid=$!
+          trap cleanup EXIT
+
+          ready=false
+          for attempt in $(seq 1 45); do
+            if ./logos/bin/logoscore --config-dir ./runtime-config status --json \
+              > runtime-evidence/status-after-daemon-restart.json 2>/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          ./logos/bin/logoscore --config-dir ./runtime-config load-module sovereign_agent \
+            | tee runtime-evidence/load-after-daemon-restart.json
+          ./logos/bin/logoscore --config-dir ./runtime-config call sovereign_agent status --json \
+            | tee runtime-evidence/status-call-after-daemon-restart.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = {
+              "module": "sovereign_agent",
+              "state": "native_spike",
+              "version": "0.1.0",
+          }
+          restarted = json.loads(
+              Path("runtime-evidence/status-call-after-daemon-restart.json").read_text()
+          )
+          assert json.loads(restarted["result"]) == expected, restarted
+          PY
+          ./logos/bin/logoscore --config-dir ./runtime-config stop \
+            | tee runtime-evidence/stop-after-daemon-restart.json
+          wait "$daemon_pid"
+          trap - EXIT
+          ./logos/bin/logoscore --config-dir ./runtime-config status --json \
+            > runtime-evidence/status-after-final-stop.json 2>&1 || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          stopped = json.loads(
+              Path("runtime-evidence/status-after-final-stop.json").read_text()
           )
           assert stopped["daemon"]["status"] == "not_running", stopped
           PY

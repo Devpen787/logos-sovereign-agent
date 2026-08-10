@@ -29,6 +29,11 @@ jobs:
           persist-credentials: false
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install Linux Basecamp runtime library
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libopengl0
       - name: Materialize module lock
         run: |
           nix flake lock

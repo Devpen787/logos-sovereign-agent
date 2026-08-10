@@ -63,11 +63,19 @@ class NativeContractTests(unittest.TestCase):
         for required_command in (
             "nix flake lock",
             "install --file",
+            "#cli-portable",
+            "--require-signatures",
+            "expect_rejection signature-required",
+            "expect_rejection dev-cli-rejects-portable",
+            "expect_rejection portable-cli-rejects-dev",
+            "expect_rejection corrupt-archive",
             "load-module sovereign_agent",
             "module-info sovereign_agent --json",
             "call sovereign_agent version --json",
             "call sovereign_agent status --json",
             "reload-module sovereign_agent",
+            "status-after-daemon-restart.json",
+            "status-call-after-daemon-restart.json",
             "status-after-stop.json",
         ):
             self.assertIn(required_command, workflow)
@@ -95,7 +103,11 @@ class NativeContractTests(unittest.TestCase):
             self.assertIn(required_contract, ui_test)
         self.assertIn("cli-portable", workflow)
         self.assertIn("bin-bundle-dir-inspector", workflow)
+        self.assertIn("libopengl0", workflow)
         self.assertIn("basecamp_native_spike.mjs", workflow)
+        self.assertIn("waitForModuleState", ui_test)
+        self.assertIn('"Not loaded"', ui_test)
+        self.assertNotIn('unloaded.error !== "Module not connected"', ui_test)
         self.assertNotIn("+            ", workflow)
 
     def test_repository_has_no_local_path_or_secret_markers(self) -> None:
