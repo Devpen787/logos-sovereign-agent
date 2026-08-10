@@ -96,6 +96,7 @@ class NativeContractTests(unittest.TestCase):
         self.assertIn("cli-portable", workflow)
         self.assertIn("bin-bundle-dir-inspector", workflow)
         self.assertIn("basecamp_native_spike.mjs", workflow)
+        self.assertNotIn("+            ", workflow)
 
     def test_repository_has_no_local_path_or_secret_markers(self) -> None:
         forbidden = (
